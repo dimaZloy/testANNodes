@@ -11,7 +11,9 @@ using DataFrames;
 function predict(ω, x) 
     x = mat(x)
     for i=1:2:length(ω)-2
-        x = relu.(ω[i]*x .+ ω[i+1])
+        x = relu.(ω[i]*x .+ ω[i+1]) ## - fast 
+		##x = tanh.(ω[i]*x .+ ω[i+1]) ## - very slow 
+		##x = sigm.(ω[i]*x .+ ω[i+1]) ## - nooo
     end
     return ω[end-1]*x .+ ω[end]
 end
