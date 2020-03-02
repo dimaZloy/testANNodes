@@ -1,7 +1,26 @@
 
 ## DL 
 ## rev 29 Feb 2020
-## EulerSI method 
+
+## list of the ODE solvers: 
+## Euler Semi-Implicit method 
+## Euler method 
+## Trapezoid method 
+## Rosenbrock12 method 
+## Rodas23 method 
+
+## for the van Der Pol system:
+## Jacobian computation methods:
+## 1) analytical
+## 2) numerical (handled)
+## 3) Julia native (using ForwardDiff package) 
+
+
+
+
+
+
+
 
 using LinearAlgebra
 using PyPlot
@@ -158,9 +177,9 @@ function SIEsolve(x0, y0, dydx0_, dx )
 
  
 	###############################################
-	## dfdy_ = SIEjacobianAnalitical(x0, y0);
+	 dfdy_ = SIEjacobianAnalitical(x0, y0);
 	## dfdy_ = jac(y0);
-	dfdy_ = SIEjacobianNum(x0, y0);
+	## dfdy_ = SIEjacobianNum(x0, y0);
 	
 	
 	
@@ -186,13 +205,13 @@ function SIEsolve(x0, y0, dydx0_, dx )
 
     ##LUBacksubstitute(a_, pivotIndices_, err_);
  
-    k_ = a_\err_;
+    err_ = a_\err_;
 
 	
     
     for i=1:n	
-        ##y[i] = y0[i] + err_[i];
-		y[i] = y0[i] + k_[i];
+        y[i] = y0[i] + err_[i];
+		##y[i] = y0[i] + k_[i];
 		
     end
    	
@@ -410,20 +429,23 @@ function SIEnormalizeError( y0, y, err_ )
 	## global atol;
 	## global rtol;
 	
-	atol = 1e-6;
-	rtol = 1e-6;
+	atol = 1e-3;
+	rtol = 1e-3;
 
 	
 	n = length(y0);
 	
     maxErr = 0.0;
+    tol = 0.0;
+    
 
     for i=1:n	
         tol = atol  + rtol *max(abs(y0[i]), abs(y[i]));
-        maxErr = max(maxErr, abs(err_[i])/tol);
+        ##maxErr = max(maxErr, abs(err_[i])/tol);
+        maxErr = maxErr  + abs(err_[i])/tol;
     end	
 
-    return maxErr;
+    return sqrt(maxErr/n);
 end
 
 
@@ -459,6 +481,55 @@ function SIEadaptivesolve(x, y, dxTry)
 end
 
 
+function controller(err,h, errold = 1.0e-4)
+    
+    minscale = 0.2;
+    maxscale = 10.0;
+    safe =0.9;
+    beta = 0.0;
+    alpha = 0.2-beta*0.75;
+    
+    scale = 0.0;
+    reject = false;
+    hnext = h;
+    
+    if (err <=0)
+        if (err == 0.0)
+            scale = maxscale;
+        else
+            scale = safe*err^(-alpha)*errold^(beta);
+            if scale < minscale 
+                scale = minscale;
+            end;
+            if scale >maxscale
+                scale = maxscale;
+            end;    
+        end
+        
+        if (reject)
+            hnext = h*min(scale,1.0);
+        else
+            hnext = h*scale;
+        end
+        errold = max(err,1.0e-4);
+        reject = false;
+        
+        
+        
+    else
+        
+        scale = max(safe*err^(-alpha), minscale);
+        hnext  = h*scale;
+        
+  
+        
+        reject = true;
+        
+    end
+
+    return reject, hnext;
+    
+end
 
 
 
@@ -483,7 +554,7 @@ function main()
         
 	
 	n_ = 2;
-	maxIters = 1000; 
+	maxIters = 50000; 
 	dx = (xEnd-x0)/maxIters;
 
     t = zeros(maxIters+1);
@@ -494,38 +565,49 @@ function main()
 
 	x = 0.0;
 	y = 0.0;
+    yT = 0.0;
 	err = 0.0;
+    
+    hnext = 0.0;
 	
     println("iteration i=0, t=$x, y = $y0");
+    stepsCounter = 0;
 
-	for z =1:maxIters
+	##for z =1:maxIters
+    while ( (stepsCounter <= maxIters) && (x <= xEnd) )
 
+         
 	
 	      dydx0_ = zeros(n_);
 	      yTemp_ = zeros(n_);		  
 	
 		  x = x0;	
           y = y0;
-         
-	      SIEderivatives(x,y,dydx0_);
-		  ##y, err = SIEsolve(x,y,dydx0_, dx);
-          ## y, err = Trapezoidsolve(x0, y0, dydx0_, dx);
-          y, err = Rodas23solve(x0, y0, dydx0_, dx);
-          ## y, err = EEsolve(x0, y0, dydx0_, dx)
-          ## y, err = Rosenbrock12solve(x,y,dydx0_, dx);
-        
+    
+          ##rejected = false;
+	      
+          SIEderivatives(x,y,dydx0_);
+		  ##y, err = SIEsolve(x,y,dydx0_, dx); ## not failed, but need iters->Inf (xaxa)
+          ##y, err = EEsolve(x0, y0, dydx0_, dx); ## failed
+          ## y, err = Trapezoidsolve(x0, y0, dydx0_, dx); ## failed
+          ##y, err = Rodas23solve(x0, y0, dydx0_, dx); ## failed
+          
+          y, err = Rosenbrock12solve(x,y,dydx0_, dx);
+          
+          rejected, dx = controller(err,dx);
+            
+          
 	
 	      x0 = x + dx ;
 	      y0 = y; 
 	
-	      t[z+1] = x0;
-	      sol[z+1,:] = y0;	
+	      t[stepsCounter+1] = x0;
+	      sol[stepsCounter+1,:] = y0;	
 	
-		  if (x>=xEnd)
-				return;
-	      end	
-	  
-		  ##println("iteration i=$z, t=$x, y = $y");
+		
+          stepsCounter = stepsCounter +1;
+        
+		  println("iteration i=$stepsCounter , t=$x, y = $y, err = $err, dx = $dx");
 		  
 
 	end
@@ -536,8 +618,9 @@ function main()
 
 figure(1)
 clf();
-##subplot(3,1,1);
+subplot(2,1,1);
 plot(t, sol[:,1],"or");
+subplot(2,1,2);    
 plot(t, sol[:,2],"ob");
 
 
